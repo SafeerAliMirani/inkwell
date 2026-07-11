@@ -74,6 +74,7 @@
   <div class="toggles">
     <label><input type="checkbox" id="tAll"> show all weights, not just live signal</label>
     <label><input type="checkbox" id="tSign" checked> colour by weight sign</label>
+    <span class="hint">drag to pan, scroll to zoom, double click to reset</span>
     <span class="hint" id="engine"></span>
   </div>
 
@@ -155,7 +156,7 @@ for (let i = 0; i < NEURONS.length; i++) { NEU[i * 4] = NEURONS[i].x; NEU[i * 4 
 
 let actAll = new Float32Array(IDX.total);
 let predicted = -1;
-const state = { front: 0, sweepStart: 0, showAll: false, sign: true };
+const state = { front: 0, sweepStart: 0, showAll: false, sign: true, scale: 1, panX: 0, panY: 0, dragging: false };
 document.getElementById("tAll").addEventListener("change", e => state.showAll = e.target.checked);
 document.getElementById("tSign").addEventListener("change", e => state.sign = e.target.checked);
 
@@ -179,8 +180,34 @@ async function main() {
     initFallback();
   }
   attachDrawing();
+  attachCamera();
   classify(true);
   requestAnimationFrame(frame);
+}
+
+function attachCamera() {
+  const net = document.getElementById("net");
+  const toBacking = e => { const r = net.getBoundingClientRect(); return [(e.clientX - r.left) * (net.width / r.width), (e.clientY - r.top) * (net.height / r.height)]; };
+  net.addEventListener("wheel", e => {
+    e.preventDefault();
+    const [mx, my] = toBacking(e);
+    const ns = Math.min(6, Math.max(0.6, state.scale * Math.exp(-e.deltaY * 0.0015)));
+    const k = ns / state.scale, cx = net.width / 2, cy = net.height / 2;
+    state.panX = (mx - cx) * (1 - k) + state.panX * k;
+    state.panY = (my - cy) * (1 - k) + state.panY * k;
+    state.scale = ns;
+  }, { passive: false });
+  let lx = 0, ly = 0;
+  net.addEventListener("pointerdown", e => { state.dragging = true; lx = e.clientX; ly = e.clientY; net.setPointerCapture(e.pointerId); });
+  net.addEventListener("pointermove", e => {
+    if (!state.dragging) return;
+    const r = net.getBoundingClientRect();
+    state.panX += (e.clientX - lx) * (net.width / r.width);
+    state.panY += (e.clientY - ly) * (net.height / r.height);
+    lx = e.clientX; ly = e.clientY;
+  });
+  ["pointerup", "pointercancel"].forEach(t => net.addEventListener(t, () => { state.dragging = false; }));
+  net.addEventListener("dblclick", () => { state.scale = 1; state.panX = 0; state.panY = 0; });
 }
 
 function attachDrawing() {
@@ -193,7 +220,7 @@ function attachDrawing() {
   document.getElementById("sample").addEventListener("click", loadSample);
 }
 
-let pending = false;
+let pending = false, gpuLogged = false;
 function classify(resetSweep) {
   if (pending) return; pending = true;
   requestAnimationFrame(async () => {
@@ -201,9 +228,19 @@ function classify(resetSweep) {
     const img28 = preprocessFromCanvas();
     if (!img28) { actAll.fill(0); predicted = -1; updateDom(null); if (resetSweep) startSweep(); return; }
     const xNorm = INKWELL.normalize(img28);
-    let a1, a2, z3;
-    if (gpu) { const out = await gpu.infer(xNorm); a1 = out.a1; a2 = out.a2; z3 = out.z3; verify(xNorm, a1, a2, z3); }
-    else { const o = INKWELL.forward(ps, xNorm); a1 = o.a1; a2 = o.a2; z3 = logitsFromForward(ps, o); }
+    // JavaScript network is the correctness reference. The GPU result is used
+    // for display only when it matches, so the shown prediction is never wrong.
+    const o = INKWELL.forward(ps, xNorm);
+    let a1 = o.a1, a2 = o.a2, z3 = logitsFromForward(ps, o), engine = "js";
+    if (gpu) {
+      try {
+        const out = await gpu.infer(xNorm);
+        let d = 0;
+        for (let j = 0; j < 16; j++) d = Math.max(d, Math.abs(out.a1[j] - o.a1[j]), Math.abs(out.a2[j] - o.a2[j]));
+        if (d < 1e-3) { a1 = out.a1; a2 = out.a2; z3 = out.z3; engine = "gpu"; }
+        else if (!gpuLogged) { gpuLogged = true; console.warn("Inkwell: GPU compute did not match the JS network, using JS for the prediction. maxdiff", d.toExponential(2), "\n gpu a1[0..3]", Array.from(out.a1.slice(0,4)), "\n js  a1[0..3]", Array.from(o.a1.slice(0,4)), "\n gpu z3", Array.from(out.z3)); }
+      } catch (e) { if (!gpuLogged) { gpuLogged = true; console.warn("Inkwell: GPU infer threw, using JS.", e); } }
+    }
     const probs = softmax(z3);
     predicted = argmax(probs);
     for (let i = 0; i < 784; i++) actAll[i] = Math.min(1, Math.max(0, img28[i]));
@@ -211,9 +248,17 @@ function classify(resetSweep) {
     for (let j = 0; j < 16; j++) actAll[IDX.h2 + j] = a2[j];
     for (let d = 0; d < 10; d++) actAll[IDX.out + d] = probs[d];
     if (gpu) gpu.writeActivations(actAll);
+    setEngine(engine);
     updateDom(probs);
     if (resetSweep) startSweep();
   });
+}
+
+function setEngine(engine) {
+  const el = document.getElementById("engine");
+  if (!el) return;
+  if (engine === "gpu") el.textContent = "inference on your GPU (WGSL compute), checked against JavaScript";
+  else el.textContent = gpu ? "rendering on GPU, prediction from JavaScript (GPU compute mismatch)" : "JavaScript network (no WebGPU)";
 }
 
 function logitsFromForward(ps, o) {
@@ -223,13 +268,6 @@ function logitsFromForward(ps, o) {
 }
 function softmax(z) { let m = -1e9; for (const v of z) m = Math.max(m, v); let s = 0; const p = new Float64Array(z.length); for (let i = 0; i < z.length; i++) { p[i] = Math.exp(z[i] - m); s += p[i]; } for (let i = 0; i < z.length; i++) p[i] /= s; return p; }
 function argmax(a) { let k = 0; for (let i = 1; i < a.length; i++) if (a[i] > a[k]) k = i; return k; }
-
-function verify(x, a1, a2, z3) {
-  const o = INKWELL.forward(ps, x); let m = 0;
-  for (let j = 0; j < 16; j++) m = Math.max(m, Math.abs(a1[j] - o.a1[j]));
-  for (let j = 0; j < 16; j++) m = Math.max(m, Math.abs(a2[j] - o.a2[j]));
-  if (m > 1e-3) console.warn("WGSL vs JS oracle diverged by", m.toExponential(2));
-}
 
 function updateDom(probs) {
   if (!probs) { document.getElementById("predDigit").textContent = ""; document.getElementById("predConf").textContent = "draw a digit"; bars.forEach(b => { b.classList.remove("win"); b.querySelector(".fill").style.height = "0%"; }); return; }

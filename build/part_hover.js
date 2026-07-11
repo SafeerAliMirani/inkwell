@@ -24,10 +24,14 @@
   }
   const s1 = pct(ps.W1, 99), s2 = pct(ps.W2, 99), s3 = pct(ps.W3, 99);
   net.addEventListener("pointermove", e => {
+    if (state.dragging) { hover.style.display = "none"; return; }
     const r = net.getBoundingClientRect();
     const bx = (e.clientX - r.left) * (net.width / r.width), by = (e.clientY - r.top) * (net.height / r.height);
+    // undo the camera so hit testing is in the network's own coordinates
+    const cx = net.width / 2, cy = net.height / 2;
+    const wx = (bx - cx - state.panX) / state.scale + cx, wy = (by - cy - state.panY) / state.scale + cy;
     let best = -1, bd = 1e9;
-    for (let i = IDX.h1; i < NEURONS.length; i++) { const dx = NEURONS[i].x - bx, dy = NEURONS[i].y - by, d = dx*dx + dy*dy; if (d < bd) { bd = d; best = i; } }
+    for (let i = IDX.h1; i < NEURONS.length; i++) { const dx = NEURONS[i].x - wx, dy = NEURONS[i].y - wy, d = dx*dx + dy*dy; if (d < bd) { bd = d; best = i; } }
     if (best < 0) { hover.style.display = "none"; return; }
     const nr = NEURONS[best].r * 1.9;
     if (bd > nr * nr) { hover.style.display = "none"; return; }

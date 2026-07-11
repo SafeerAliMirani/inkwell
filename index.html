@@ -74,6 +74,7 @@
   <div class="toggles">
     <label><input type="checkbox" id="tAll"> show all weights, not just live signal</label>
     <label><input type="checkbox" id="tSign" checked> colour by weight sign</label>
+    <span class="hint">drag to pan, scroll to zoom, double click to reset</span>
     <span class="hint" id="engine"></span>
   </div>
 
@@ -280,7 +281,7 @@ for (let i = 0; i < NEURONS.length; i++) { NEU[i * 4] = NEURONS[i].x; NEU[i * 4 
 
 let actAll = new Float32Array(IDX.total);
 let predicted = -1;
-const state = { front: 0, sweepStart: 0, showAll: false, sign: true };
+const state = { front: 0, sweepStart: 0, showAll: false, sign: true, scale: 1, panX: 0, panY: 0, dragging: false };
 document.getElementById("tAll").addEventListener("change", e => state.showAll = e.target.checked);
 document.getElementById("tSign").addEventListener("change", e => state.sign = e.target.checked);
 
@@ -304,8 +305,34 @@ async function main() {
     initFallback();
   }
   attachDrawing();
+  attachCamera();
   classify(true);
   requestAnimationFrame(frame);
+}
+
+function attachCamera() {
+  const net = document.getElementById("net");
+  const toBacking = e => { const r = net.getBoundingClientRect(); return [(e.clientX - r.left) * (net.width / r.width), (e.clientY - r.top) * (net.height / r.height)]; };
+  net.addEventListener("wheel", e => {
+    e.preventDefault();
+    const [mx, my] = toBacking(e);
+    const ns = Math.min(6, Math.max(0.6, state.scale * Math.exp(-e.deltaY * 0.0015)));
+    const k = ns / state.scale, cx = net.width / 2, cy = net.height / 2;
+    state.panX = (mx - cx) * (1 - k) + state.panX * k;
+    state.panY = (my - cy) * (1 - k) + state.panY * k;
+    state.scale = ns;
+  }, { passive: false });
+  let lx = 0, ly = 0;
+  net.addEventListener("pointerdown", e => { state.dragging = true; lx = e.clientX; ly = e.clientY; net.setPointerCapture(e.pointerId); });
+  net.addEventListener("pointermove", e => {
+    if (!state.dragging) return;
+    const r = net.getBoundingClientRect();
+    state.panX += (e.clientX - lx) * (net.width / r.width);
+    state.panY += (e.clientY - ly) * (net.height / r.height);
+    lx = e.clientX; ly = e.clientY;
+  });
+  ["pointerup", "pointercancel"].forEach(t => net.addEventListener(t, () => { state.dragging = false; }));
+  net.addEventListener("dblclick", () => { state.scale = 1; state.panX = 0; state.panY = 0; });
 }
 
 function attachDrawing() {
@@ -318,7 +345,7 @@ function attachDrawing() {
   document.getElementById("sample").addEventListener("click", loadSample);
 }
 
-let pending = false;
+let pending = false, gpuLogged = false;
 function classify(resetSweep) {
   if (pending) return; pending = true;
   requestAnimationFrame(async () => {
@@ -326,9 +353,19 @@ function classify(resetSweep) {
     const img28 = preprocessFromCanvas();
     if (!img28) { actAll.fill(0); predicted = -1; updateDom(null); if (resetSweep) startSweep(); return; }
     const xNorm = INKWELL.normalize(img28);
-    let a1, a2, z3;
-    if (gpu) { const out = await gpu.infer(xNorm); a1 = out.a1; a2 = out.a2; z3 = out.z3; verify(xNorm, a1, a2, z3); }
-    else { const o = INKWELL.forward(ps, xNorm); a1 = o.a1; a2 = o.a2; z3 = logitsFromForward(ps, o); }
+    // JavaScript network is the correctness reference. The GPU result is used
+    // for display only when it matches, so the shown prediction is never wrong.
+    const o = INKWELL.forward(ps, xNorm);
+    let a1 = o.a1, a2 = o.a2, z3 = logitsFromForward(ps, o), engine = "js";
+    if (gpu) {
+      try {
+        const out = await gpu.infer(xNorm);
+        let d = 0;
+        for (let j = 0; j < 16; j++) d = Math.max(d, Math.abs(out.a1[j] - o.a1[j]), Math.abs(out.a2[j] - o.a2[j]));
+        if (d < 1e-3) { a1 = out.a1; a2 = out.a2; z3 = out.z3; engine = "gpu"; }
+        else if (!gpuLogged) { gpuLogged = true; console.warn("Inkwell: GPU compute did not match the JS network, using JS for the prediction. maxdiff", d.toExponential(2), "\n gpu a1[0..3]", Array.from(out.a1.slice(0,4)), "\n js  a1[0..3]", Array.from(o.a1.slice(0,4)), "\n gpu z3", Array.from(out.z3)); }
+      } catch (e) { if (!gpuLogged) { gpuLogged = true; console.warn("Inkwell: GPU infer threw, using JS.", e); } }
+    }
     const probs = softmax(z3);
     predicted = argmax(probs);
     for (let i = 0; i < 784; i++) actAll[i] = Math.min(1, Math.max(0, img28[i]));
@@ -336,9 +373,17 @@ function classify(resetSweep) {
     for (let j = 0; j < 16; j++) actAll[IDX.h2 + j] = a2[j];
     for (let d = 0; d < 10; d++) actAll[IDX.out + d] = probs[d];
     if (gpu) gpu.writeActivations(actAll);
+    setEngine(engine);
     updateDom(probs);
     if (resetSweep) startSweep();
   });
+}
+
+function setEngine(engine) {
+  const el = document.getElementById("engine");
+  if (!el) return;
+  if (engine === "gpu") el.textContent = "inference on your GPU (WGSL compute), checked against JavaScript";
+  else el.textContent = gpu ? "rendering on GPU, prediction from JavaScript (GPU compute mismatch)" : "JavaScript network (no WebGPU)";
 }
 
 function logitsFromForward(ps, o) {
@@ -348,13 +393,6 @@ function logitsFromForward(ps, o) {
 }
 function softmax(z) { let m = -1e9; for (const v of z) m = Math.max(m, v); let s = 0; const p = new Float64Array(z.length); for (let i = 0; i < z.length; i++) { p[i] = Math.exp(z[i] - m); s += p[i]; } for (let i = 0; i < z.length; i++) p[i] /= s; return p; }
 function argmax(a) { let k = 0; for (let i = 1; i < a.length; i++) if (a[i] > a[k]) k = i; return k; }
-
-function verify(x, a1, a2, z3) {
-  const o = INKWELL.forward(ps, x); let m = 0;
-  for (let j = 0; j < 16; j++) m = Math.max(m, Math.abs(a1[j] - o.a1[j]));
-  for (let j = 0; j < 16; j++) m = Math.max(m, Math.abs(a2[j] - o.a2[j]));
-  if (m > 1e-3) console.warn("WGSL vs JS oracle diverged by", m.toExponential(2));
-}
 
 function updateDom(probs) {
   if (!probs) { document.getElementById("predDigit").textContent = ""; document.getElementById("predConf").textContent = "draw a digit"; bars.forEach(b => { b.classList.remove("win"); b.querySelector(".fill").style.height = "0%"; }); return; }
@@ -423,15 +461,19 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   const bg1 = bg(inBuf, a1Buf, W1, b1, m1), bg2 = bg(a1Buf, a2Buf, W2, b2, m2), bg3 = bg(a2Buf, z3Buf, W3, b3, m3);
 
   const actBuf = device.createBuffer({ size: IDX.total * 4, usage: U.STORAGE | U.COPY_DST });
-  const uni = device.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
+  const uni = device.createBuffer({ size: 48, usage: U.UNIFORM | U.COPY_DST });
   const neuBuf = buf(NEU, U.VERTEX | U.COPY_DST);
   const connBuf = buf(CONN.data, U.VERTEX | U.COPY_DST);
 
   const rShader = device.createShaderModule({ code: `
-struct Uni { canvas: vec2<f32>, front: f32, pred: i32, showAll: u32, sign: u32, p0: u32, p1: u32 };
+struct Uni { canvas: vec2<f32>, front: f32, pred: i32, showAll: u32, sign: u32, scale: f32, panx: f32, pany: f32, p0: u32, p1: u32, p2: u32 };
 @group(0) @binding(0) var<uniform> U: Uni;
 @group(0) @binding(1) var<storage, read> act: array<f32>;
-fn toClip(p: vec2<f32>) -> vec4<f32> { return vec4((p / U.canvas) * vec2<f32>(2.0, -2.0) + vec2<f32>(-1.0, 1.0), 0.0, 1.0); }
+fn toClip(p: vec2<f32>) -> vec4<f32> {
+  let c = U.canvas * 0.5;
+  let pc = (p - c) * U.scale + c + vec2<f32>(U.panx, U.pany);
+  return vec4((pc / U.canvas) * vec2<f32>(2.0, -2.0) + vec2<f32>(-1.0, 1.0), 0.0, 1.0);
+}
 
 struct NOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32>, @location(1) bright: f32, @location(2) win: f32 };
 @vertex fn nv(@builtin(vertex_index) vi: u32, @location(0) ipos: vec2<f32>, @location(1) rad: f32, @location(2) gidxf: f32) -> NOut {
@@ -508,7 +550,7 @@ struct COut { @builtin(position) pos: vec4<f32>, @location(0) rgb: vec3<f32> };
       color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" }, alpha: { srcFactor: "one", dstFactor: "one", operation: "add" } } }] },
     primitive: { topology: "triangle-list" } });
 
-  const uniData = new ArrayBuffer(32);
+  const uniData = new ArrayBuffer(48);
   const uf = new Float32Array(uniData), ui = new Int32Array(uniData), uu = new Uint32Array(uniData);
 
   async function infer(xNorm) {
@@ -535,6 +577,7 @@ struct COut { @builtin(position) pos: vec4<f32>, @location(0) rgb: vec3<f32> };
   function render(state, pred) {
     uf[0] = canvas.width; uf[1] = canvas.height; uf[2] = state.front;
     ui[3] = pred; uu[4] = state.showAll ? 1 : 0; uu[5] = state.sign ? 1 : 0;
+    uf[6] = state.scale; uf[7] = state.panX; uf[8] = state.panY;
     device.queue.writeBuffer(uni, 0, uniData);
     const enc = device.createCommandEncoder();
     const pass = enc.beginRenderPass({ colorAttachments: [{ view: ctx.getCurrentTexture().createView(), clearValue: { r: 0.043, g: 0.051, b: 0.071, a: 1 }, loadOp: "clear", storeOp: "store" }] });
@@ -575,10 +618,14 @@ struct COut { @builtin(position) pos: vec4<f32>, @location(0) rgb: vec3<f32> };
   }
   const s1 = pct(ps.W1, 99), s2 = pct(ps.W2, 99), s3 = pct(ps.W3, 99);
   net.addEventListener("pointermove", e => {
+    if (state.dragging) { hover.style.display = "none"; return; }
     const r = net.getBoundingClientRect();
     const bx = (e.clientX - r.left) * (net.width / r.width), by = (e.clientY - r.top) * (net.height / r.height);
+    // undo the camera so hit testing is in the network's own coordinates
+    const cx = net.width / 2, cy = net.height / 2;
+    const wx = (bx - cx - state.panX) / state.scale + cx, wy = (by - cy - state.panY) / state.scale + cy;
     let best = -1, bd = 1e9;
-    for (let i = IDX.h1; i < NEURONS.length; i++) { const dx = NEURONS[i].x - bx, dy = NEURONS[i].y - by, d = dx*dx + dy*dy; if (d < bd) { bd = d; best = i; } }
+    for (let i = IDX.h1; i < NEURONS.length; i++) { const dx = NEURONS[i].x - wx, dy = NEURONS[i].y - wy, d = dx*dx + dy*dy; if (d < bd) { bd = d; best = i; } }
     if (best < 0) { hover.style.display = "none"; return; }
     const nr = NEURONS[best].r * 1.9;
     if (bd > nr * nr) { hover.style.display = "none"; return; }
@@ -621,7 +668,9 @@ function initFallback() { fctx = document.getElementById("net").getContext("2d")
 function fallbackRender() {
   if (!fctx) return;
   const cv = document.getElementById("net"), W = cv.width, H = cv.height;
+  fctx.setTransform(1, 0, 0, 1, 0, 0);
   fctx.fillStyle = "#0b0d12"; fctx.fillRect(0, 0, W, H);
+  fctx.translate(W / 2 + state.panX, H / 2 + state.panY); fctx.scale(state.scale, state.scale); fctx.translate(-W / 2, -H / 2);
   const frontX = state.front * W + 8;
   const s1 = pct(ps.W1, 99), s2 = pct(ps.W2, 99), s3 = pct(ps.W3, 99);
   fctx.globalCompositeOperation = "lighter";

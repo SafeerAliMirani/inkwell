@@ -3,7 +3,9 @@ function initFallback() { fctx = document.getElementById("net").getContext("2d")
 function fallbackRender() {
   if (!fctx) return;
   const cv = document.getElementById("net"), W = cv.width, H = cv.height;
+  fctx.setTransform(1, 0, 0, 1, 0, 0);
   fctx.fillStyle = "#0b0d12"; fctx.fillRect(0, 0, W, H);
+  fctx.translate(W / 2 + state.panX, H / 2 + state.panY); fctx.scale(state.scale, state.scale); fctx.translate(-W / 2, -H / 2);
   const frontX = state.front * W + 8;
   const s1 = pct(ps.W1, 99), s2 = pct(ps.W2, 99), s3 = pct(ps.W3, 99);
   fctx.globalCompositeOperation = "lighter";

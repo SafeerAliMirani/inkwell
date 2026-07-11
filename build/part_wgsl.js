@@ -50,15 +50,19 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   const bg1 = bg(inBuf, a1Buf, W1, b1, m1), bg2 = bg(a1Buf, a2Buf, W2, b2, m2), bg3 = bg(a2Buf, z3Buf, W3, b3, m3);
 
   const actBuf = device.createBuffer({ size: IDX.total * 4, usage: U.STORAGE | U.COPY_DST });
-  const uni = device.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
+  const uni = device.createBuffer({ size: 48, usage: U.UNIFORM | U.COPY_DST });
   const neuBuf = buf(NEU, U.VERTEX | U.COPY_DST);
   const connBuf = buf(CONN.data, U.VERTEX | U.COPY_DST);
 
   const rShader = device.createShaderModule({ code: `
-struct Uni { canvas: vec2<f32>, front: f32, pred: i32, showAll: u32, sign: u32, p0: u32, p1: u32 };
+struct Uni { canvas: vec2<f32>, front: f32, pred: i32, showAll: u32, sign: u32, scale: f32, panx: f32, pany: f32, p0: u32, p1: u32, p2: u32 };
 @group(0) @binding(0) var<uniform> U: Uni;
 @group(0) @binding(1) var<storage, read> act: array<f32>;
-fn toClip(p: vec2<f32>) -> vec4<f32> { return vec4((p / U.canvas) * vec2<f32>(2.0, -2.0) + vec2<f32>(-1.0, 1.0), 0.0, 1.0); }
+fn toClip(p: vec2<f32>) -> vec4<f32> {
+  let c = U.canvas * 0.5;
+  let pc = (p - c) * U.scale + c + vec2<f32>(U.panx, U.pany);
+  return vec4((pc / U.canvas) * vec2<f32>(2.0, -2.0) + vec2<f32>(-1.0, 1.0), 0.0, 1.0);
+}
 
 struct NOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32>, @location(1) bright: f32, @location(2) win: f32 };
 @vertex fn nv(@builtin(vertex_index) vi: u32, @location(0) ipos: vec2<f32>, @location(1) rad: f32, @location(2) gidxf: f32) -> NOut {
@@ -135,7 +139,7 @@ struct COut { @builtin(position) pos: vec4<f32>, @location(0) rgb: vec3<f32> };
       color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" }, alpha: { srcFactor: "one", dstFactor: "one", operation: "add" } } }] },
     primitive: { topology: "triangle-list" } });
 
-  const uniData = new ArrayBuffer(32);
+  const uniData = new ArrayBuffer(48);
   const uf = new Float32Array(uniData), ui = new Int32Array(uniData), uu = new Uint32Array(uniData);
 
   async function infer(xNorm) {
@@ -162,6 +166,7 @@ struct COut { @builtin(position) pos: vec4<f32>, @location(0) rgb: vec3<f32> };
   function render(state, pred) {
     uf[0] = canvas.width; uf[1] = canvas.height; uf[2] = state.front;
     ui[3] = pred; uu[4] = state.showAll ? 1 : 0; uu[5] = state.sign ? 1 : 0;
+    uf[6] = state.scale; uf[7] = state.panX; uf[8] = state.panY;
     device.queue.writeBuffer(uni, 0, uniData);
     const enc = device.createCommandEncoder();
     const pass = enc.beginRenderPass({ colorAttachments: [{ view: ctx.getCurrentTexture().createView(), clearValue: { r: 0.043, g: 0.051, b: 0.071, a: 1 }, loadOp: "clear", storeOp: "store" }] });
