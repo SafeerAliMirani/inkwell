@@ -1,0 +1,16 @@
+# large regenerable data and training checkpoints (the pipeline rebuilds these)
+training/*.npz
+training/mnist_repo/
+*.gz
+*-ubyte
+
+# python and tooling caches
+__pycache__/
+*.pyc
+.wrangler/
+node_modules/
+
+# working notes, keep out of the repo
+PROJECT_BRIEF.md
+DERISK_REPORT.md
+PROJECT_PLAYBOOK.md

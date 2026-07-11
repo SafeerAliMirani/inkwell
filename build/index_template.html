@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inkwell</title>
+<style>
+  :root { --bg:#0b0d12; --panel:#141824; --line:#222839; --ink:#e8eaf0; --dim:#8a90a2; --acc:#5b9dff; --win:#ffc857; }
+  * { box-sizing:border-box; margin:0; }
+  html, body { background:var(--bg); color:var(--ink); font:15px/1.5 system-ui, -apple-system, sans-serif; }
+  body { padding:22px 20px 60px; }
+  main { max-width:1040px; margin:0 auto; }
+  h1 { font-size:22px; font-weight:650; letter-spacing:0.2px; }
+  .tag { color:var(--dim); margin:6px 0 18px; max-width:760px; }
+  .stage { display:flex; gap:18px; align-items:flex-start; flex-wrap:wrap; }
+  .draw-wrap { background:var(--panel); border-radius:12px; padding:16px; }
+  canvas#draw { display:block; background:#000; border-radius:8px; cursor:crosshair; touch-action:none; width:240px; height:240px; }
+  .row { display:flex; gap:10px; align-items:center; margin-top:12px; }
+  button { background:#212739; color:var(--ink); border:0; border-radius:7px; padding:8px 16px; font:inherit; cursor:pointer; }
+  button:hover { background:#2b344c; }
+  .hint { color:var(--dim); font-size:13px; }
+  .net-wrap { flex:1; min-width:520px; background:var(--panel); border-radius:12px; padding:8px; position:relative; }
+  canvas#net { display:block; width:100%; height:auto; border-radius:8px; }
+  #hover { position:absolute; pointer-events:none; background:#0b0d12ee; border:1px solid var(--line); border-radius:8px; padding:8px; display:none; z-index:5; }
+  #hover canvas { display:block; image-rendering:pixelated; border-radius:4px; }
+  #hover .lab { font-size:12px; color:var(--dim); margin-top:5px; text-align:center; }
+  .readout { display:flex; gap:20px; align-items:center; margin-top:12px; flex-wrap:wrap; }
+  .pred { font-size:60px; font-weight:750; line-height:1; min-width:56px; text-align:center; }
+  .pred small { display:block; font-size:12px; font-weight:400; color:var(--dim); margin-top:4px; }
+  .bars { display:flex; gap:6px; align-items:flex-end; height:88px; }
+  .bar { width:34px; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; height:100%; }
+  .bar .fill { width:22px; background:#2b344c; border-radius:3px 3px 0 0; min-height:2px; transition:height 70ms linear; }
+  .bar.win .fill { background:var(--win); }
+  .bar .n { font-size:12px; color:var(--dim); margin-top:4px; }
+  .bar.win .n { color:var(--win); }
+  .toggles { display:flex; gap:16px; align-items:center; margin-top:14px; flex-wrap:wrap; color:var(--dim); font-size:13px; }
+  .toggles label { display:flex; gap:6px; align-items:center; cursor:pointer; }
+  .notes { color:var(--dim); font-size:13px; margin-top:24px; max-width:820px; }
+  .notes p { margin-top:7px; }
+  .credits { margin-top:22px; padding-top:16px; border-top:1px solid var(--line); color:var(--dim); font-size:13px; max-width:820px; }
+  .credits a { color:var(--acc); text-decoration:none; }
+  .credits a:hover { text-decoration:underline; }
+  .credits h2 { font-size:14px; color:var(--ink); font-weight:600; margin-bottom:6px; }
+  #gate { display:none; background:#2a1c1c; border:1px solid #5a3a3a; color:#f0d0d0; border-radius:10px; padding:14px 18px; margin:14px 0; max-width:760px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Inkwell</h1>
+  <p class="tag">Ink a digit and watch the exact network from 3Blue1Brown think. Every neuron and weighted connection is live, and the matrix math runs in hand-written WGSL compute shaders on your GPU. The activations you see are the numbers those shaders just wrote. No machine-learning or graphics libraries.</p>
+
+  <div id="gate"></div>
+
+  <div class="stage">
+    <div class="draw-wrap">
+      <canvas id="draw" width="280" height="280"></canvas>
+      <div class="row">
+        <button id="clear">Clear</button>
+        <button id="sample">Load a test digit</button>
+      </div>
+      <div class="readout">
+        <div class="pred"><span id="predDigit"></span><small id="predConf">draw a digit</small></div>
+        <div class="bars" id="bars"></div>
+      </div>
+      <p class="hint" style="margin-top:12px; max-width:240px;">Draw a centred, upright digit that fills the box. Trained on centred MNIST digits, so very off-centre or tiny strokes may confuse it.</p>
+    </div>
+
+    <div class="net-wrap">
+      <canvas id="net" width="1440" height="1020"></canvas>
+      <div id="hover"><canvas id="hoverCv"></canvas><div class="lab" id="hoverLab"></div></div>
+    </div>
+  </div>
+
+  <div class="toggles">
+    <label><input type="checkbox" id="tAll"> show all weights, not just live signal</label>
+    <label><input type="checkbox" id="tSign" checked> colour by weight sign</label>
+    <span class="hint" id="engine"></span>
+  </div>
+
+  <div class="notes">
+    <p><b style="color:var(--ink); font-weight:600;">%%ACC%% on the MNIST test set.</b> That is test-set accuracy on centred MNIST digits, not a claim about all handwriting.</p>
+    <p>Educational, not state of the art. Modern convolutional networks exceed 99.7%. This is deliberately the small, legible network so you can see every neuron and weight: a 784-16-16-10 perceptron, about 13,000 parameters.</p>
+    <p>Hover any neuron to see its incoming weights. A hidden-layer-1 neuron shows its 784 weights as a 28x28 image, the pattern it looks for. Blue is a positive weight, red is negative.</p>
+    <p>The matrix multiplies run in WGSL compute shaders on your GPU, and the activations you see are read back from those same buffers. A plain JavaScript version runs alongside and checks the GPU result on every stroke.</p>
+  </div>
+
+  <div class="credits">
+    <h2>About</h2>
+    <p>Built by <b style="color:var(--ink); font-weight:600;">Dr. Safeer Ali Mirani</b>, GPU / XR / real-time visualisation engineer (PhD).</p>
+    <p><a href="mailto:safeer.ali.mirani@gmail.com">safeer.ali.mirani@gmail.com</a> &middot; <a href="https://safeeralimirani.netlify.app" target="_blank" rel="noopener">Portfolio</a> &middot; <a href="https://github.com/SafeerAliMirani" target="_blank" rel="noopener">GitHub</a> &middot; <a href="https://www.linkedin.com/in/safeeralimirani" target="_blank" rel="noopener">LinkedIn</a></p>
+    <p>Data: the MNIST database of handwritten digits (Yann LeCun, Corinna Cortes, Christopher Burges). The images here are the canonical MNIST files, checksum verified against the original distribution.</p>
+    <p>Inspired by 3Blue1Brown's "But what is a neural network?", and in the spirit of Adam Harley's interactive digit visualisation. Rebuilt as the flat perceptron with inference in raw WebGPU compute.</p>
+    <p>Compute: the model trained offline in NumPy. Weights are frozen and embedded in this page. Live inference runs on your GPU, and a plain JavaScript copy checks it on every stroke.</p>
+  </div>
+</main>
+
+<script>
+%%CORE%%
+</script>
+<script>
+const WEIGHTS_B64 = "%%WEIGHTS%%";
+const ps = INKWELL.decodeWeights(WEIGHTS_B64);
+const DIMS = [784, 16, 16, 10];
+
+const drawCv = document.getElementById("draw"), dctx = drawCv.getContext("2d", { willReadFrequently: true });
+const BRUSH = 22;
+function resetDraw() { dctx.fillStyle = "#000"; dctx.fillRect(0, 0, 280, 280); dctx.fillStyle = "#fff"; dctx.strokeStyle = "#fff"; }
+dctx.lineWidth = BRUSH; dctx.lineCap = "round"; dctx.lineJoin = "round";
+resetDraw();
+
+const bars = [], barsEl = document.getElementById("bars");
+for (let d = 0; d < 10; d++) {
+  const b = document.createElement("div"); b.className = "bar";
+  b.innerHTML = '<div class="fill"></div><div class="n">' + d + '</div>';
+  barsEl.appendChild(b); bars.push(b);
+}
+
+function layout() {
+  const W = 1440, H = 1020, pad = 40;
+  const gx0 = 60, gy0 = 250, gcell = 18, gr = 6.5;
+  const input = [];
+  for (let r = 0; r < 28; r++) for (let c = 0; c < 28; c++)
+    input.push({ x: gx0 + (c + 0.5) * gcell, y: gy0 + (r + 0.5) * gcell, r: gr });
+  function col(x, n, r) {
+    const top = 120, bot = H - 120, a = [];
+    for (let i = 0; i < n; i++) a.push({ x, y: top + (bot - top) * (n === 1 ? 0.5 : i / (n - 1)), r });
+    return a;
+  }
+  const h1 = col(760, 16, 20), h2 = col(1000, 16, 20), out = col(1280, 10, 26);
+  return { W, H, input, h1, h2, out };
+}
+const L = layout();
+const NEURONS = [...L.input, ...L.h1, ...L.h2, ...L.out];
+const IDX = { input: 0, h1: 784, h2: 800, out: 816, total: 826 };
+
+function buildConnections() {
+  const scale1 = pct(ps.W1, 99), scale2 = pct(ps.W2, 99), scale3 = pct(ps.W3, 99);
+  const inst = [];
+  function add(src, dst, w, scale, sidx) {
+    inst.push(src.x, src.y, dst.x, dst.y, w / scale, sidx);
+  }
+  for (let j = 0; j < 16; j++) for (let i = 0; i < 784; i++) add(L.input[i], L.h1[j], ps.W1[j * 784 + i], scale1, IDX.input + i);
+  for (let j = 0; j < 16; j++) for (let i = 0; i < 16; i++) add(L.h1[i], L.h2[j], ps.W2[j * 16 + i], scale2, IDX.h1 + i);
+  for (let j = 0; j < 10; j++) for (let i = 0; i < 16; i++) add(L.h2[i], L.out[j], ps.W3[j * 16 + i], scale3, IDX.h2 + i);
+  return { data: new Float32Array(inst), count: inst.length / 6 };
+}
+function pct(arr, p) {
+  const a = Array.from(arr, Math.abs).sort((x, y) => x - y);
+  return a[Math.floor((p / 100) * (a.length - 1))] || 1;
+}
+const CONN = buildConnections();
+
+const NEU = new Float32Array(NEURONS.length * 4);
+for (let i = 0; i < NEURONS.length; i++) { NEU[i * 4] = NEURONS[i].x; NEU[i * 4 + 1] = NEURONS[i].y; NEU[i * 4 + 2] = NEURONS[i].r; NEU[i * 4 + 3] = i; }
+
+let actAll = new Float32Array(IDX.total);
+let predicted = -1;
+const state = { front: 0, sweepStart: 0, showAll: false, sign: true };
+document.getElementById("tAll").addEventListener("change", e => state.showAll = e.target.checked);
+document.getElementById("tSign").addEventListener("change", e => state.sign = e.target.checked);
+
+function preprocessFromCanvas() {
+  const data = dctx.getImageData(0, 0, 280, 280).data;
+  const gray = new Float32Array(280 * 280);
+  for (let i = 0; i < gray.length; i++) gray[i] = data[i * 4] / 255;
+  const g56 = INKWELL.boxAvg(gray, 280, 5);
+  return INKWELL.preprocess(g56, 56, 56);
+}
+
+let gpu = null;
+async function main() {
+  gpu = await initWebGPU().catch(err => { console.warn("WebGPU init failed", err); return null; });
+  const engineEl = document.getElementById("engine");
+  if (gpu) engineEl.textContent = "inference and rendering on your GPU (WebGPU)";
+  else {
+    document.getElementById("gate").style.display = "block";
+    document.getElementById("gate").textContent = "This page needs WebGPU for the live network view. It works in current Chrome or Edge on desktop. The prediction and probabilities below still work everywhere, using the JavaScript network.";
+    engineEl.textContent = "JavaScript fallback (no WebGPU)";
+    initFallback();
+  }
+  attachDrawing();
+  classify(true);
+  requestAnimationFrame(frame);
+}
+
+function attachDrawing() {
+  let drawing = false, last = null;
+  const pos = e => { const r = drawCv.getBoundingClientRect(); return [(e.clientX - r.left) * (280 / r.width), (e.clientY - r.top) * (280 / r.height)]; };
+  drawCv.addEventListener("pointerdown", e => { drawCv.setPointerCapture(e.pointerId); drawing = true; last = pos(e); dctx.beginPath(); dctx.arc(last[0], last[1], BRUSH / 2, 0, 7); dctx.fill(); classify(true); });
+  drawCv.addEventListener("pointermove", e => { if (!drawing) return; const p = pos(e); dctx.beginPath(); dctx.moveTo(last[0], last[1]); dctx.lineTo(p[0], p[1]); dctx.stroke(); last = p; classify(true); });
+  ["pointerup", "pointercancel"].forEach(t => drawCv.addEventListener(t, () => { drawing = false; }));
+  document.getElementById("clear").addEventListener("click", () => { resetDraw(); classify(true); });
+  document.getElementById("sample").addEventListener("click", loadSample);
+}
+
+let pending = false;
+function classify(resetSweep) {
+  if (pending) return; pending = true;
+  requestAnimationFrame(async () => {
+    pending = false;
+    const img28 = preprocessFromCanvas();
+    if (!img28) { actAll.fill(0); predicted = -1; updateDom(null); if (resetSweep) startSweep(); return; }
+    const xNorm = INKWELL.normalize(img28);
+    let a1, a2, z3;
+    if (gpu) { const out = await gpu.infer(xNorm); a1 = out.a1; a2 = out.a2; z3 = out.z3; verify(xNorm, a1, a2, z3); }
+    else { const o = INKWELL.forward(ps, xNorm); a1 = o.a1; a2 = o.a2; z3 = logitsFromForward(ps, o); }
+    const probs = softmax(z3);
+    predicted = argmax(probs);
+    for (let i = 0; i < 784; i++) actAll[i] = Math.min(1, Math.max(0, img28[i]));
+    for (let j = 0; j < 16; j++) actAll[IDX.h1 + j] = a1[j];
+    for (let j = 0; j < 16; j++) actAll[IDX.h2 + j] = a2[j];
+    for (let d = 0; d < 10; d++) actAll[IDX.out + d] = probs[d];
+    if (gpu) gpu.writeActivations(actAll);
+    updateDom(probs);
+    if (resetSweep) startSweep();
+  });
+}
+
+function logitsFromForward(ps, o) {
+  const z = new Float64Array(10);
+  for (let j = 0; j < 10; j++) { let a = ps.b3[j]; for (let i = 0; i < 16; i++) a += o.a2[i] * ps.W3[j * 16 + i]; z[j] = a; }
+  return z;
+}
+function softmax(z) { let m = -1e9; for (const v of z) m = Math.max(m, v); let s = 0; const p = new Float64Array(z.length); for (let i = 0; i < z.length; i++) { p[i] = Math.exp(z[i] - m); s += p[i]; } for (let i = 0; i < z.length; i++) p[i] /= s; return p; }
+function argmax(a) { let k = 0; for (let i = 1; i < a.length; i++) if (a[i] > a[k]) k = i; return k; }
+
+function verify(x, a1, a2, z3) {
+  const o = INKWELL.forward(ps, x); let m = 0;
+  for (let j = 0; j < 16; j++) m = Math.max(m, Math.abs(a1[j] - o.a1[j]));
+  for (let j = 0; j < 16; j++) m = Math.max(m, Math.abs(a2[j] - o.a2[j]));
+  if (m > 1e-3) console.warn("WGSL vs JS oracle diverged by", m.toExponential(2));
+}
+
+function updateDom(probs) {
+  if (!probs) { document.getElementById("predDigit").textContent = ""; document.getElementById("predConf").textContent = "draw a digit"; bars.forEach(b => { b.classList.remove("win"); b.querySelector(".fill").style.height = "0%"; }); return; }
+  document.getElementById("predDigit").textContent = predicted;
+  document.getElementById("predConf").textContent = (probs[predicted] * 100).toFixed(1) + "% confident";
+  for (let d = 0; d < 10; d++) { bars[d].classList.toggle("win", d === predicted); bars[d].querySelector(".fill").style.height = (probs[d] * 100).toFixed(1) + "%"; }
+}
+
+function startSweep() { state.sweepStart = performance.now(); state.front = 0; }
+function frame(now) {
+  const dur = 620;
+  state.front = Math.min(1, (now - state.sweepStart) / dur);
+  if (gpu) gpu.render(state, predicted); else fallbackRender();
+  requestAnimationFrame(frame);
+}
+
+%%WGSL%%
+
+%%HOVER%%
+
+%%SAMPLE%%
+
+%%FALLBACK%%
+
+main();
+</script>
+</body>
+</html>

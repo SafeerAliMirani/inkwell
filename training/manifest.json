@@ -1,0 +1,76 @@
+{
+  "name": "inkwell-mlp",
+  "architecture": [
+    784,
+    16,
+    16,
+    10
+  ],
+  "hidden_activation": "sigmoid",
+  "output": "softmax",
+  "layout": "row-major, W[j*IN_DIM+i] = weight from input i to output neuron j",
+  "order": [
+    {
+      "name": "W1",
+      "shape": [
+        16,
+        784
+      ]
+    },
+    {
+      "name": "b1",
+      "shape": [
+        16
+      ]
+    },
+    {
+      "name": "W2",
+      "shape": [
+        16,
+        16
+      ]
+    },
+    {
+      "name": "b2",
+      "shape": [
+        16
+      ]
+    },
+    {
+      "name": "W3",
+      "shape": [
+        10,
+        16
+      ]
+    },
+    {
+      "name": "b3",
+      "shape": [
+        10
+      ]
+    }
+  ],
+  "dtype": "float32-le",
+  "bytes": 52008,
+  "normalization": {
+    "formula": "(pixel/255 - mean)/std",
+    "mean": 0.1307,
+    "std": 0.3081
+  },
+  "preprocessing": "threshold>0.05, crop bbox, scale longest side to 20px (bilinear, preserve aspect), paste centred in 28x28, integer shift so intensity centre of mass sits at (13.5, 13.5)",
+  "mnist_test_accuracy": 0.9577,
+  "training": "55k MNIST train (5k held out for val), numpy Adam, augmentation: rotate/scale/shift + mild dilate/erode, then low-LR finetune with milder augmentation; seed 7",
+  "data_source": "MNIST idx files, canonical MD5-verified (github.com/fgnt/mnist mirror of yann.lecun.com originals)",
+  "activation_stats": {
+    "a1": {
+      "p1": 1.3464956146597151e-12,
+      "p50": 0.37388622760772705,
+      "p99": 1.0
+    },
+    "a2": {
+      "p1": 0.004050795920193195,
+      "p50": 0.5355395674705505,
+      "p99": 0.9932432770729065
+    }
+  }
+}
