@@ -12,6 +12,7 @@ def read(p):
 core = read(os.path.join(TRAIN, "inkwell_core.js"))
 weights = read(os.path.join(TRAIN, "weights_b64.txt")).strip()
 acc = json.load(open(os.path.join(TRAIN, "manifest.json")))["mnist_test_accuracy"]
+cam3d = read(os.path.join(HERE, "part_cam3d.js"))
 wgsl = read(os.path.join(HERE, "part_wgsl.js"))
 hover = read(os.path.join(HERE, "part_hover.js"))
 sample = read(os.path.join(HERE, "part_sample.js"))
@@ -24,6 +25,7 @@ html = (html
         .replace("%%CORE%%", core)
         .replace("%%WEIGHTS%%", weights)
         .replace("%%ACC%%", f"{acc*100:.1f}%")
+        .replace("%%CAM3D%%", cam3d)
         .replace("%%WGSL%%", wgsl)
         .replace("%%HOVER%%", hover)
         .replace("%%SAMPLE%%", sample_block)

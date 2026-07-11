@@ -24,7 +24,7 @@
   }
   const s1 = pct(ps.W1, 99), s2 = pct(ps.W2, 99), s3 = pct(ps.W3, 99);
   net.addEventListener("pointermove", e => {
-    if (state.dragging) { hover.style.display = "none"; return; }
+    if (state.dragging || state.view === "3d") { hover.style.display = "none"; return; }
     const r = net.getBoundingClientRect();
     const bx = (e.clientX - r.left) * (net.width / r.width), by = (e.clientY - r.top) * (net.height / r.height);
     // undo the camera so hit testing is in the network's own coordinates
