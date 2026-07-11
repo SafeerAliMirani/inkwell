@@ -641,24 +641,28 @@ struct COut { @builtin(position) pos: vec4<f32>, @location(0) rgb: vec3<f32> };
   if (U.showAll == 1u) { strength = max(strength, abs(w) * 0.16); }
   if (U.mode == 0u && dst.x > U.front * U.netW + 8.0) { strength = 0.0; }
   strength = clamp(strength, 0.0, 1.2);
-  let half = clamp(0.35 + strength * 2.0, 0.35, 2.8) * U.unit;
+  let half = clamp(0.35 + strength * 2.0, 0.5, 2.8) * U.unit;
   let mid = mix(src, dst, 0.5);
   var toCam = vec3<f32>(0.0, 0.0, 1.0);
   if (U.mode == 1u) { toCam = normalize(U.camPos - mid); }
-  let dir = normalize(dst - src);
-  let side = normalize(cross(dir, toCam));
+  var dir = dst - src;
+  if (length(dir) < 1e-6) { dir = vec3<f32>(1.0, 0.0, 0.0); }
+  dir = normalize(dir);
+  var side = cross(dir, toCam);
+  if (length(side) < 1e-5) { side = vec3<f32>(0.0, 1.0, 0.0); }
+  side = normalize(side);
   var quad = array<vec2<f32>, 6>(vec2<f32>(0.0,-1.0), vec2<f32>(1.0,-1.0), vec2<f32>(0.0,1.0), vec2<f32>(0.0,1.0), vec2<f32>(1.0,-1.0), vec2<f32>(1.0,1.0));
   let q = quad[vi];
   let p = mix(src, dst, q.x) + side * (q.y * half);
-  var fade = 1.0;
-  if (U.mode == 1u) { fade = clamp(2.8 / distance(U.camPos, mid), 0.22, 1.0); }
+  var bright = 0.9;
+  if (U.mode == 1u) { bright = 1.7 * clamp(3.4 / distance(U.camPos, mid), 0.55, 1.15); }
   var col = vec3<f32>(0.55, 0.65, 0.9);
   if (U.sign == 1u) {
     if (w >= 0.0) { col = vec3<f32>(0.28, 0.55, 1.0); } else { col = vec3<f32>(1.0, 0.34, 0.32); }
   }
   var o: COut;
   o.pos = U.mvp * vec4<f32>(p, 1.0);
-  o.rgb = col * strength * fade * 0.9;
+  o.rgb = col * strength * bright;
   return o;
 }
 @fragment fn cf(o: COut) -> @location(0) vec4<f32> { return vec4<f32>(o.rgb, 1.0); }` });
@@ -721,7 +725,7 @@ struct COut { @builtin(position) pos: vec4<f32>, @location(0) rgb: vec3<f32> };
     uf[20] = cam.up[0]; uf[21] = cam.up[1]; uf[22] = cam.up[2];
     uf[24] = cam.camPos[0]; uf[25] = cam.camPos[1]; uf[26] = cam.camPos[2];
     uf[28] = state.front; uu[29] = mode; uu[30] = state.showAll ? 1 : 0; uu[31] = state.sign ? 1 : 0;
-    ui[32] = pred; uf[33] = mode === 1 ? 0.008 : 1.0; uf[34] = canvas.width;
+    ui[32] = pred; uf[33] = mode === 1 ? 0.016 : 1.0; uf[34] = canvas.width;
     device.queue.writeBuffer(uni, 0, uniData);
     const nBuf = mode === 1 ? neu3 : neu2, cBuf = mode === 1 ? conn3 : conn2;
     const cCount = mode === 1 ? L3.count : CONN.count;
