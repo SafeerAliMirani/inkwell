@@ -23,18 +23,27 @@
     }
   }
   const s1 = pct(ps.W1, 99), s2 = pct(ps.W2, 99), s3 = pct(ps.W3, 99);
+  const POS3 = NN3D.positions3d().neurons;
   net.addEventListener("pointermove", e => {
-    if (state.dragging || state.view === "3d") { hover.style.display = "none"; return; }
+    if (state.dragging) { hover.style.display = "none"; return; }
     const r = net.getBoundingClientRect();
     const bx = (e.clientX - r.left) * (net.width / r.width), by = (e.clientY - r.top) * (net.height / r.height);
-    // undo the camera so hit testing is in the network's own coordinates
-    const cx = net.width / 2, cy = net.height / 2;
-    const wx = (bx - cx - state.panX) / state.scale + cx, wy = (by - cy - state.panY) / state.scale + cy;
     let best = -1, bd = 1e9;
-    for (let i = IDX.h1; i < NEURONS.length; i++) { const dx = NEURONS[i].x - wx, dy = NEURONS[i].y - wy, d = dx*dx + dy*dy; if (d < bd) { bd = d; best = i; } }
-    if (best < 0) { hover.style.display = "none"; return; }
-    const nr = NEURONS[best].r * 1.9;
-    if (bd > nr * nr) { hover.style.display = "none"; return; }
+    if (state.view === "3d") {
+      const cam = NN3D.view3d(state, net.width / net.height);
+      for (let i = IDX.h1; i < POS3.length; i++) {
+        const s = NN3D.project(cam.mvp, POS3[i], net.width, net.height);
+        if (!s) continue;
+        const dx = s[0] - bx, dy = s[1] - by, d = dx*dx + dy*dy;
+        if (d < bd) { bd = d; best = i; }
+      }
+      if (best < 0 || bd > 34 * 34) { hover.style.display = "none"; return; }
+    } else {
+      const cx = net.width / 2, cy = net.height / 2;
+      const wx = (bx - cx - state.panX) / state.scale + cx, wy = (by - cy - state.panY) / state.scale + cy;
+      for (let i = IDX.h1; i < NEURONS.length; i++) { const dx = NEURONS[i].x - wx, dy = NEURONS[i].y - wy, d = dx*dx + dy*dy; if (d < bd) { bd = d; best = i; } }
+      if (best < 0 || bd > (NEURONS[best].r * 1.9) * (NEURONS[best].r * 1.9)) { hover.style.display = "none"; return; }
+    }
     let kind, weights, scale, lab;
     if (best < IDX.h2) { const j = best - IDX.h1; kind = "grid"; weights = ps.W1.subarray(j*784, j*784+784); scale = s1; lab = "hidden 1, neuron " + (j+1) + ": its 784 input weights"; }
     else if (best < IDX.out) { const j = best - IDX.h2; kind = "strip"; weights = ps.W2.subarray(j*16, j*16+16); scale = s2; lab = "hidden 2, neuron " + (j+1) + ": 16 weights from layer 1"; }

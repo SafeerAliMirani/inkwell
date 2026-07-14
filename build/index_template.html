@@ -72,7 +72,7 @@
 <main>
   <header>
     <h1><span class="dot"></span>Inkwell</h1>
-    <p class="tag">Ink a digit and watch the exact network from 3Blue1Brown think. Every neuron and weighted connection is live, and the matrix maths run in hand-written WGSL compute shaders on your GPU. The activations you see are the numbers those shaders just wrote. No machine-learning or graphics libraries.</p>
+    <p class="tag">Ink a digit and watch the exact network from 3Blue1Brown think, flat or in 3D. Every neuron and weighted connection is live, and the matrix maths run in hand-written WGSL compute shaders on your GPU, checked live against a plain JavaScript version. No machine-learning or graphics libraries.</p>
   </header>
 
   <div id="gate"></div>
@@ -109,8 +109,8 @@
   <div class="notes">
     <p><b style="color:var(--ink); font-weight:600;">%%ACC%% on the MNIST test set.</b> That is test-set accuracy on centred MNIST digits, not a claim about all handwriting.</p>
     <p>Educational, not state of the art. Modern convolutional networks exceed 99.7%. This is deliberately the small, legible network so you can see every neuron and weight: a 784-16-16-10 perceptron, about 13,000 parameters.</p>
-    <p>Hover any neuron to see its incoming weights. A hidden-layer-1 neuron shows its 784 weights as a 28x28 image, the pattern it looks for. Blue is a positive weight, red is negative.</p>
-    <p>The matrix multiplies run in WGSL compute shaders on your GPU, and the activations you see are read back from those same buffers. A plain JavaScript version runs alongside and checks the GPU result on every stroke.</p>
+    <p>Switch between the flat view and 3D with the toggle. In flat view, drag to pan and scroll to zoom. In 3D, drag to orbit, scroll or pinch to zoom, and double click to reset. Hover any neuron in either view to see its incoming weights: a hidden-layer-1 neuron shows its 784 weights as a 28x28 image, the pattern it looks for. Blue is a positive weight, red is negative.</p>
+    <p>The matrix multiplies run in hand-written WGSL compute shaders on your GPU, and a plain JavaScript version of the same network runs alongside as a check. The neuron and connection view is drawn in raw WebGPU as well, in both the flat and 3D layouts.</p>
   </div>
 
   <div class="credits">
@@ -181,7 +181,7 @@ const CONN = buildConnections();
 
 let actAll = new Float32Array(IDX.total);
 let predicted = -1;
-const state = { front: 0, sweepStart: 0, showAll: false, sign: true, scale: 1, panX: 0, panY: 0, dragging: false, view: "2d", yaw: 0.5, pitch: 0.34, dist: 6.2 };
+const state = { front: 0, sweepStart: 0, showAll: false, sign: true, scale: 1, panX: 0, panY: 0, dragging: false, view: "2d", yaw: 0.5, pitch: 0.34, dist: 6.2, lastInput: 0 };
 document.getElementById("tAll").addEventListener("change", e => state.showAll = e.target.checked);
 document.getElementById("tSign").addEventListener("change", e => state.sign = e.target.checked);
 
@@ -229,6 +229,7 @@ function attachCamera() {
   function dolly(factor) { state.dist = Math.min(ZOOM.distMax, Math.max(ZOOM.distMin, state.dist * factor)); }
   net.addEventListener("wheel", e => {
     e.preventDefault();
+    state.lastInput = performance.now();
     if (state.view === "3d") { dolly(Math.exp(e.deltaY * 0.0012)); return; }
     const [mx, my] = backing(e.clientX, e.clientY);
     zoom2d(mx, my, Math.exp(-e.deltaY * 0.0015));
@@ -237,12 +238,14 @@ function attachCamera() {
   let lx = 0, ly = 0, pinch = 0;
   const spread = () => { const a = [...pts.values()]; return Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y); };
   net.addEventListener("pointerdown", e => {
+    state.lastInput = performance.now();
     pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
     net.setPointerCapture(e.pointerId);
     if (pts.size === 1) { state.dragging = true; lx = e.clientX; ly = e.clientY; }
     else if (pts.size === 2) { state.dragging = false; pinch = spread(); }
   });
   net.addEventListener("pointermove", e => {
+    state.lastInput = performance.now();
     if (!pts.has(e.pointerId)) return;
     pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (pts.size >= 2) {
@@ -277,7 +280,7 @@ function attachCamera() {
   document.getElementById("mode3d").addEventListener("click", () => setView("3d"));
 }
 function setView(v) {
-  state.view = v; resetView();
+  state.view = v; resetView(); state.lastInput = performance.now();
   document.getElementById("mode2d").classList.toggle("on", v === "2d");
   document.getElementById("mode3d").classList.toggle("on", v === "3d");
   document.getElementById("camhint").textContent = v === "3d" ? "drag to orbit, scroll to zoom, double click to reset" : "drag to pan, scroll to zoom, double click to reset";
@@ -354,6 +357,7 @@ function startSweep() { state.sweepStart = performance.now(); state.front = 0; }
 function frame(now) {
   const dur = 620;
   state.front = Math.min(1, (now - state.sweepStart) / dur);
+  if (state.view === "3d" && !state.dragging && now - state.lastInput > 2500) state.yaw += 0.0018;
   if (gpu) gpu.render(state, predicted); else fallbackRender();
   requestAnimationFrame(frame);
 }

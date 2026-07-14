@@ -48,9 +48,8 @@ const NN3D = (function () {
     m[10] = 1; m[15] = 1;
     return { mvp: m, right: [1, 0, 0], up: [0, 1, 0], camPos: [0, 0, 1] };
   }
-  // 3D scene: input panel in front, hidden columns and output receding in depth.
-  function layout3d(ps, pct) {
-    const s1 = pct(ps.W1, 99), s2 = pct(ps.W2, 99), s3 = pct(ps.W3, 99);
+  // Fixed 3D geometry: input panel in front, hidden columns and output receding.
+  function positions3d() {
     const input = [], h1 = [], h2 = [], out = [];
     const zin = 1.7, zh1 = 0.55, zh2 = -0.55, zout = -1.7;
     for (let r = 0; r < 28; r++) for (let c = 0; c < 28; c++)
@@ -60,7 +59,12 @@ const NN3D = (function () {
     for (let i = 0; i < 16; i++) h1.push([0, y16[i], zh1, 0.07]);
     for (let i = 0; i < 16; i++) h2.push([0, y16[i], zh2, 0.07]);
     for (let i = 0; i < 10; i++) out.push([0, y10[i], zout, 0.09]);
-    const neurons = [...input, ...h1, ...h2, ...out];
+    return { input, h1, h2, out, neurons: [...input, ...h1, ...h2, ...out] };
+  }
+  function layout3d(ps, pct) {
+    const s1 = pct(ps.W1, 99), s2 = pct(ps.W2, 99), s3 = pct(ps.W3, 99);
+    const P = positions3d();
+    const neurons = P.neurons;
     const neu = new Float32Array(neurons.length * 6);
     for (let i = 0; i < neurons.length; i++) {
       const n = neurons[i];
@@ -68,9 +72,9 @@ const NN3D = (function () {
     }
     const inst = [];
     const add = (a, b, w, sc, sidx) => inst.push(a[0], a[1], a[2], b[0], b[1], b[2], w / sc, sidx);
-    for (let j = 0; j < 16; j++) for (let i = 0; i < 784; i++) add(input[i], h1[j], ps.W1[j*784+i], s1, i);
-    for (let j = 0; j < 16; j++) for (let i = 0; i < 16; i++) add(h1[i], h2[j], ps.W2[j*16+i], s2, 784 + i);
-    for (let j = 0; j < 10; j++) for (let i = 0; i < 16; i++) add(h2[i], out[j], ps.W3[j*16+i], s3, 800 + i);
+    for (let j = 0; j < 16; j++) for (let i = 0; i < 784; i++) add(P.input[i], P.h1[j], ps.W1[j*784+i], s1, i);
+    for (let j = 0; j < 16; j++) for (let i = 0; i < 16; i++) add(P.h1[i], P.h2[j], ps.W2[j*16+i], s2, 784 + i);
+    for (let j = 0; j < 10; j++) for (let i = 0; i < 16; i++) add(P.h2[i], P.out[j], ps.W3[j*16+i], s3, 800 + i);
     return { neu, conn: new Float32Array(inst), count: inst.length / 8, positions: neurons };
   }
   function project(mvp, p, W, H) {
@@ -80,6 +84,6 @@ const NN3D = (function () {
     if (w <= 0) return null;
     return [ (x / w * 0.5 + 0.5) * W, (0.5 - y / w * 0.5) * H ];
   }
-  return { mul, perspective, lookAt, view3d, view2d, layout3d, project };
+  return { mul, perspective, lookAt, view3d, view2d, layout3d, positions3d, project };
 })();
 if (typeof module !== "undefined") module.exports = NN3D;
