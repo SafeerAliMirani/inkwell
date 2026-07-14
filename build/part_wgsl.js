@@ -123,7 +123,7 @@ struct COut { @builtin(position) pos: vec4<f32>, @location(0) rgb: vec3<f32> };
   let q = quad[vi];
   let p = mix(src, dst, q.x) + side * (q.y * half);
   var bright = 0.9;
-  if (U.mode == 1u) { bright = 1.7 * clamp(3.4 / distance(U.camPos, mid), 0.55, 1.15); }
+  if (U.mode == 1u) { bright = 1.05 * clamp(3.0 / distance(U.camPos, mid), 0.5, 1.0); }
   var col = vec3<f32>(0.55, 0.65, 0.9);
   if (U.sign == 1u) {
     if (w >= 0.0) { col = vec3<f32>(0.28, 0.55, 1.0); } else { col = vec3<f32>(1.0, 0.34, 0.32); }
@@ -193,7 +193,7 @@ struct COut { @builtin(position) pos: vec4<f32>, @location(0) rgb: vec3<f32> };
     uf[20] = cam.up[0]; uf[21] = cam.up[1]; uf[22] = cam.up[2];
     uf[24] = cam.camPos[0]; uf[25] = cam.camPos[1]; uf[26] = cam.camPos[2];
     uf[27] = state.front; uu[28] = mode; uu[29] = state.showAll ? 1 : 0; uu[30] = state.sign ? 1 : 0;
-    ui[31] = pred; uf[32] = mode === 1 ? 0.02 : 1.0; uf[33] = canvas.width;
+    ui[31] = pred; uf[32] = mode === 1 ? 0.007 : 1.0; uf[33] = canvas.width;
     device.queue.writeBuffer(uni, 0, uniData);
     const nBuf = mode === 1 ? neu3 : neu2, cBuf = mode === 1 ? conn3 : conn2;
     const cCount = mode === 1 ? L3.count : CONN.count;

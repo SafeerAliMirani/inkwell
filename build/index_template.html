@@ -55,6 +55,17 @@
   .credits b { color:var(--ink); font-weight:600; }
   .credits h2 { font-size:15px; color:var(--ink); font-weight:600; margin-bottom:7px; }
   #gate { display:none; background:#241a1a; border:1px solid #573a3a; color:#eecccc; border-radius:11px; padding:14px 18px; margin:14px 0; max-width:780px; font-size:13.5px; }
+  @media (max-width: 760px) {
+    body { padding:20px 14px 60px; }
+    .stage { gap:12px; }
+    .draw-wrap { width:100%; align-items:center; }
+    canvas#draw { width:100%; max-width:300px; height:auto; aspect-ratio:1 / 1; }
+    .readout, .drawhint { width:100%; max-width:300px; }
+    .net-wrap { min-width:0; width:100%; }
+    .toolbar { top:12px; right:12px; }
+    .legend { left:12px; bottom:10px; gap:10px; }
+    .controls { gap:12px; }
+  }
 </style>
 </head>
 <body>
