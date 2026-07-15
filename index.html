@@ -318,9 +318,15 @@ function preprocessFromCanvas() {
   return INKWELL.preprocess(g56, 56, 56);
 }
 
+// window.track is defined by the analytics snippet at the end of the page
+const fired = {};
+function sendEvent(type, label) { try { if (window.track) window.track(type, label); } catch (_) {} }
+function sendOnce(type, label) { const k = type + "|" + label; if (fired[k]) return; fired[k] = 1; sendEvent(type, label); }
+
 let gpu = null;
 async function main() {
-  gpu = await initWebGPU().catch(err => { console.warn("WebGPU init failed", err); return null; });
+  let failMsg = "";
+  gpu = await initWebGPU().catch(err => { console.warn("WebGPU init failed", err); failMsg = (err && err.message) || ""; return null; });
   const engineEl = document.getElementById("engine");
   if (gpu) engineEl.textContent = "inference and rendering on your GPU (WebGPU)";
   else {
@@ -329,6 +335,7 @@ async function main() {
     engineEl.textContent = "JavaScript fallback (no WebGPU)";
     document.querySelector(".toolbar").style.display = "none";
     initFallback();
+    sendEvent("webgpu_unsupported", !navigator.gpu ? "no-webgpu" : (/adapter/i.test(failMsg) ? "no-adapter" : "init-failed"));
   }
   attachDrawing();
   attachCamera();
@@ -406,6 +413,7 @@ function attachCamera() {
 }
 function setView(v) {
   state.view = v; resetView(); state.lastInput = performance.now();
+  if (v === "3d") sendOnce("demo_interaction", "viewed-3d");
   document.getElementById("mode2d").classList.toggle("on", v === "2d");
   document.getElementById("mode3d").classList.toggle("on", v === "3d");
   document.getElementById("camhint").textContent = v === "3d" ? "drag to orbit, scroll to zoom, double click to reset" : "drag to pan, scroll to zoom, double click to reset";
@@ -415,11 +423,11 @@ function setView(v) {
 function attachDrawing() {
   let drawing = false, last = null;
   const pos = e => { const r = drawCv.getBoundingClientRect(); return [(e.clientX - r.left) * (280 / r.width), (e.clientY - r.top) * (280 / r.height)]; };
-  drawCv.addEventListener("pointerdown", e => { drawCv.setPointerCapture(e.pointerId); drawing = true; last = pos(e); dctx.beginPath(); dctx.arc(last[0], last[1], BRUSH / 2, 0, 7); dctx.fill(); classify(true); });
+  drawCv.addEventListener("pointerdown", e => { drawCv.setPointerCapture(e.pointerId); drawing = true; last = pos(e); dctx.beginPath(); dctx.arc(last[0], last[1], BRUSH / 2, 0, 7); dctx.fill(); classify(true); sendOnce("demo_interaction", "drew-digit"); });
   drawCv.addEventListener("pointermove", e => { if (!drawing) return; const p = pos(e); dctx.beginPath(); dctx.moveTo(last[0], last[1]); dctx.lineTo(p[0], p[1]); dctx.stroke(); last = p; classify(true); });
   ["pointerup", "pointercancel"].forEach(t => drawCv.addEventListener(t, () => { drawing = false; }));
   document.getElementById("clear").addEventListener("click", () => { resetDraw(); classify(true); });
-  document.getElementById("sample").addEventListener("click", loadSample);
+  document.getElementById("sample").addEventListener("click", () => { loadSample(); sendOnce("demo_interaction", "loaded-test-digit"); });
 }
 
 let pending = false, gpuLogged = false;
@@ -915,6 +923,38 @@ function fallbackRender() {
 
 
 main();
+</script>
+<script>
+(function(){
+  var ENDPOINT = 'https://safeer-analytics.safeer-ali-mirani.workers.dev/collect';
+
+  function send(type, label){
+    try {
+      var body = JSON.stringify({
+        type: type,
+        label: label || null,
+        path: location.pathname,
+        referrer: document.referrer || null
+      });
+      if (navigator.sendBeacon) navigator.sendBeacon(ENDPOINT, new Blob([body], { type: 'application/json' }));
+      else fetch(ENDPOINT, { method:'POST', body: body, headers:{'Content-Type':'application/json'}, keepalive: true });
+    } catch (_) {}
+  }
+
+  send('pageview');
+
+  document.addEventListener('click', function(e){
+    var a = e.target.closest ? e.target.closest('a') : null;
+    if (!a) return;
+    var href = a.getAttribute('href') || '';
+    if (/^https?:\/\//.test(href) && href.indexOf(location.host) === -1) {
+      var host = (href.match(/https?:\/\/([^\/]+)/) || [])[1] || 'link';
+      send('outbound_click', host);
+    }
+  }, true);
+
+  window.track = send;
+})();
 </script>
 </body>
 </html>
