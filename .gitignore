@@ -14,3 +14,7 @@ node_modules/
 PROJECT_BRIEF.md
 DERISK_REPORT.md
 PROJECT_PLAYBOOK.md
+
+# pre-ship reviews, local only
+REVIEW_*.md
+_review_input.md

@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Inkwell</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230a0c11'/%3E%3Cg stroke='%235b9dff' stroke-width='0.9' opacity='0.45' fill='none'%3E%3Cpath d='M9 10L16 16M9 22L16 16M16 16L23 11M16 16L23 21'/%3E%3C/g%3E%3Ccircle cx='9' cy='10' r='2.2' fill='%235b9dff'/%3E%3Ccircle cx='9' cy='22' r='2.2' fill='%235b9dff'/%3E%3Ccircle cx='16' cy='16' r='2.4' fill='%235b9dff'/%3E%3Ccircle cx='23' cy='11' r='2.4' fill='%23ffc857'/%3E%3Ccircle cx='23' cy='21' r='2' fill='%235b9dff' opacity='0.5'/%3E%3C/svg%3E" />
 <style>
   :root { --bg:#0a0c11; --panel:#12151f; --line:#232838; --ink:#eaecf2; --dim:#868da0; --acc:#5b9dff; --win:#ffc857; }
   * { box-sizing:border-box; margin:0; }
@@ -392,8 +393,8 @@ function attachCamera() {
     if (!state.dragging) return;
     const r = net.getBoundingClientRect(), dx = e.clientX - lx, dy = e.clientY - ly;
     if (state.view === "3d") {
-      state.yaw += dx * 0.006;
-      state.pitch = Math.max(-1.4, Math.min(1.4, state.pitch - dy * 0.006));
+      state.yaw -= dx * 0.006;
+      state.pitch = Math.max(-1.4, Math.min(1.4, state.pitch + dy * 0.006));
     } else {
       state.panX += dx * (net.width / r.width);
       state.panY += dy * (net.height / r.height);
@@ -936,8 +937,11 @@ main();
         path: location.pathname,
         referrer: document.referrer || null
       });
-      if (navigator.sendBeacon) navigator.sendBeacon(ENDPOINT, new Blob([body], { type: 'application/json' }));
-      else fetch(ENDPOINT, { method:'POST', body: body, headers:{'Content-Type':'application/json'}, keepalive: true });
+      // text/plain is REQUIRED: application/json is not CORS-safelisted, so the browser
+      // needs a preflight, drops the beacon SILENTLY, and sendBeacon still returns true.
+      // The Worker parses the body as JSON regardless of the declared type.
+      if (navigator.sendBeacon) navigator.sendBeacon(ENDPOINT, new Blob([body], { type: 'text/plain;charset=UTF-8' }));
+      else fetch(ENDPOINT, { method:'POST', body: body, headers:{'Content-Type':'text/plain;charset=UTF-8'}, keepalive: true });
     } catch (_) {}
   }
 
@@ -956,5 +960,43 @@ main();
   window.track = send;
 })();
 </script>
+<!-- tour: steps for this page, then the shared engine -->
+<script>
+window.TOUR_STEPS = [
+  {
+    "sel": "#draw",
+    "title": "Draw a digit",
+    "body": "Write any number from 0 to 9 with your mouse or finger. This is the input, and everything on the page reacts to it."
+  },
+  {
+    "sel": ".pred",
+    "title": "What it thinks you wrote",
+    "body": "The network's answer, updated as you draw. It was trained on handwriting from thousands of other people, never yours."
+  },
+  {
+    "sel": "#bars",
+    "title": "How sure it is",
+    "body": "One bar for each digit. A confident answer is one tall bar. A messy digit spreads the bars out, which is the network telling you it is guessing."
+  },
+  {
+    "sel": "#net",
+    "title": "The network itself",
+    "body": "Every neuron and every connection, lit up by your own digit as it passes through. This is the exact 784-16-16-10 network from the 3Blue1Brown series."
+  },
+  {
+    "sel": "#mode3d",
+    "title": "See it in space",
+    "body": "Flat is the classic diagram. 3D lets you orbit the layers and see how dense the connections really are."
+  },
+  {
+    "sel": "#tAll",
+    "title": "Show everything",
+    "body": "By default only the signal your digit causes is drawn. Turn this on to see every weight at once, including the ones doing nothing."
+  }
+];
+window.TOUR_OPTIONS = { readySel: "#draw" };
+</script>
+<script src="tour.js"></script>
+<!-- /tour -->
 </body>
 </html>

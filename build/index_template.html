@@ -394,8 +394,11 @@ main();
         path: location.pathname,
         referrer: document.referrer || null
       });
-      if (navigator.sendBeacon) navigator.sendBeacon(ENDPOINT, new Blob([body], { type: 'application/json' }));
-      else fetch(ENDPOINT, { method:'POST', body: body, headers:{'Content-Type':'application/json'}, keepalive: true });
+      // text/plain is REQUIRED: application/json is not CORS-safelisted, so the browser
+      // needs a preflight, drops the beacon SILENTLY, and sendBeacon still returns true.
+      // The Worker parses the body as JSON regardless of the declared type.
+      if (navigator.sendBeacon) navigator.sendBeacon(ENDPOINT, new Blob([body], { type: 'text/plain;charset=UTF-8' }));
+      else fetch(ENDPOINT, { method:'POST', body: body, headers:{'Content-Type':'text/plain;charset=UTF-8'}, keepalive: true });
     } catch (_) {}
   }
 
